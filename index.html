@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Solar System Tetris - Final Edition</title>
+    <style>
+        body { background: #05050a; color: white; font-family: 'Malgun Gothic', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
+        
+        /* 시작 화면 스타일 */
+        #start-screen {
+            position: absolute; width: 100%; height: 100%; background: radial-gradient(circle, #1a1a2e 0%, #05050a 100%);
+            display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 500;
+        }
+        #start-screen h1 { 
+            font-size: 5rem; margin-bottom: 30px; color: #00d2ff; 
+            text-shadow: 0 0 20px rgba(0, 210, 255, 0.7); 
+            letter-spacing: 10px;
+        }
+        .start-btn { 
+            padding: 20px 60px; font-size: 2rem; background: #00ff88; color: #000; 
+            border: none; border-radius: 50px; cursor: pointer; font-weight: bold;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .start-btn:hover { transform: scale(1.1); box-shadow: 0 0 30px #00ff88; }
+
+        /* 게임 화면 스타일 */
+        #game-container { display: flex; gap: 30px; border: 5px solid #444; padding: 30px; background: rgba(255,255,255,0.05); border-radius: 20px; position: relative; box-shadow: 0 0 50px rgba(0,0,0,0.5); visibility: hidden; }
+        canvas { background: #000; border: 3px solid #ffffff; }
+        #side-bar { width: 220px; display: flex; flex-direction: column; gap: 20px; }
+        .info-box { background: #111; padding: 20px; border-radius: 15px; text-align: center; border: 2px solid #ffffff; }
+        .info-label { font-size: 1.2rem; margin-bottom: 10px; color: #aaa; }
+        #timer { font-size: 3rem; color: #ff4444; font-weight: bold; }
+        #score { font-size: 2.5rem; font-weight: bold; color: #00d2ff; }
+        #nextCanvas { background: #000; border: 1px solid #ffffff; margin-top: 10px; }
+        
+        /* 메시지 및 퀴즈 */
+        #game-msg {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.95); padding: 40px; border-radius: 20px;
+            border: 3px solid #fff; font-size: 2rem; font-weight: bold;
+            display: none; z-index: 200; text-align: center; min-width: 320px;
+        }
+        .retry-btn { margin-top: 25px; padding: 15px 40px; font-size: 1.5rem; background: #00ff88; color: #000; border: none; border-radius: 10px; cursor: pointer; font-weight: bold; }
+
+        #quiz-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95); display: none; flex-direction: column;
+            align-items: center; justify-content: center; z-index: 100; text-align: center; padding: 40px; box-sizing: border-box;
+        }
+        .ans-btn { margin: 10px; padding: 15px; width: 100%; max-width: 350px; cursor: pointer; background: #222; color: #fff; border: 2px solid #fff; border-radius: 12px; font-size: 1.3rem; }
+        .ans-btn:hover { background: #444; }
+    </style>
+</head>
+<body>
+
+<div id="start-screen">
+    <h1>태양계 테트리스</h1>
+    <button class="start-btn" onclick="startGame()">게임 시작</button>
+</div>
+
+<div id="game-container">
+    <canvas id="tetris" width="360" height="600"></canvas>
+    <div id="side-bar">
+        <div class="info-box"><div class="info-label">NEXT</div><canvas id="nextCanvas" width="120" height="120"></canvas></div>
+        <div class="info-box"><div class="info-label">TIME</div><div id="timer">60.0</div></div>
+        <div class="info-box"><div class="info-label">SCORE</div><div id="score">0</div></div>
+    </div>
+    <div id="game-msg"></div>
+    <div id="quiz-overlay">
+        <h1 style="color:#00d2ff;">🚀 데이터 복구 퀴즈</h1>
+        <p id="q-text" style="font-size: 1.5rem;"></p>
+        <div id="ans-list"></div>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById('tetris');
+const context = canvas.getContext('2d');
+const nextCanvas = document.getElementById('nextCanvas');
+const nCtx = nextCanvas.getContext('2d');
+const msgBox = document.getElementById('game-msg');
+
+const SCALE = 30;
+context.scale(SCALE, SCALE);
+nCtx.scale(SCALE, SCALE);
+
+const planetInfo = {
+    1: { name: '수성', color: '#A5A5A5' }, 2: { name: '금성', color: '#E3BB76' },
+    3: { name: '화성', color: '#E27B58' }, 4: { name: '목성', color: '#D39C7E' },
+    5: { name: '토성', color: '#C5AB6E' }, 6: { name: '천왕성', color: '#BBE1E4' },
+    7: { name: '해왕성', color: '#6081FF' }
+};
+
+const quizzes = [
+    { q: "태양계에서 가장 큰 행성은?", a: ["목성", "토성", "해왕성"], c: 0 },
+    { q: "고리가 가장 아름답고 뚜렷한 행성은?", a: ["지구", "토성", "천왕성"], c: 1 },
+    { q: "붉은 행성이라고 불리는 행성은?", a: ["금성", "화성", "수성"], c: 1 },
+    { q: "태양에서 가장 가까운 행성은?", a: ["수성", "금성", "화성"], c: 0 },
+    { q: "누워있는 상태로 자전하는 행성은?", a: ["해왕성", "천왕성", "토성"], c: 1 },
+    { q: "태양계에서 가장 뜨거운 행성은?", a: ["수성", "금성", "목성"], c: 1 }
+];
+
+let arena, player, usedQuizzes, timeLeft, gameOver, isPaused, dropCounter, lastTime, requestId;
+
+// [추가] 시작 화면에서 게임으로 전환하는 함수
+function startGame() {
+    document.getElementById('start-screen').style.display = 'none';
+    document.getElementById('game-container').style.visibility = 'visible';
+    initGame();
+}
+
+function initGame() {
+    if (requestId) cancelAnimationFrame(requestId);
+    
+    arena = Array.from({length: 20}, () => new Array(12).fill(0));
+    player = { pos: {x: 0, y: 0}, matrix: null, next: null, score: 0 };
+    usedQuizzes = [];
+    timeLeft = 60.0;
+    gameOver = false;
+    isPaused = false;
+    dropCounter = 0;
+    lastTime = performance.now();
+    
+    document.getElementById('score').innerText = '0';
+    document.getElementById('timer').innerText = '60.0';
+    msgBox.style.display = 'none';
+    document.getElementById('quiz-overlay').style.display = 'none';
+    
+    playerReset();
+    update(); 
+}
+
+function createPiece(type) {
+    if (type === 'I') return [[0, 1, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0]];
+    if (type === 'L') return [[0, 2, 0], [0, 2, 0], [0, 2, 2]];
+    if (type === 'J') return [[0, 3, 0], [0, 3, 0], [3, 3, 0]];
+    if (type === 'O') return [[4, 4], [4, 4]];
+    if (type === 'Z') return [[5, 5, 0], [0, 5, 5], [0, 0, 0]];
+    if (type === 'S') return [[0, 6, 6], [6, 6, 0], [0, 0, 0]];
+    if (type === 'T') return [[0, 7, 0], [7, 7, 7], [0, 0, 0]];
+}
+
+function drawGrid(ctx, w, h) {
+    ctx.lineWidth = 0.02;
+    ctx.strokeStyle = 'white';
+    for (let i = 0; i <= w; i++) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, h); ctx.stroke(); }
+    for (let i = 0; i <= h; i++) { ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(w, i); ctx.stroke(); }
+}
+
+function drawMatrix(matrix, offset, ctx) {
+    matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+            if (value !== 0) {
+                ctx.fillStyle = planetInfo[value].color;
+                ctx.fillRect(x + offset.x, y + offset.y, 1, 1);
+                ctx.strokeStyle = 'white'; ctx.lineWidth = 0.05;
+                ctx.strokeRect(x + offset.x, y + offset.y, 1, 1);
+                ctx.fillStyle = 'white'; ctx.font = 'bold 0.5px Arial'; ctx.textAlign = 'center';
+                ctx.fillText(planetInfo[value].name[0], x + offset.x + 0.5, y + offset.y + 0.7);
+            }
+        });
+    });
+}
+
+function collide(arena, player) {
+    const [m, o] = [player.matrix, player.pos];
+    for (let y = 0; y < m.length; ++y) {
+        for (let x = 0; x < m[y].length; ++x) {
+            if (m[y][x] !== 0 && (arena[y + o.y] && arena[y + o.y][x + o.x]) !== 0) return true;
+        }
+    }
+    return false;
+}
+
+function arenaSweep() {
+    let rowCount = 0;
+    outer: for (let y = arena.length - 1; y > 0; --y) {
+        for (let x = 0; x < arena[y].length; ++x) { if (arena[y][x] === 0) continue outer; }
+        arena.splice(y, 1);
+        arena.unshift(new Array(12).fill(0));
+        y++; rowCount++;
+    }
+    if (rowCount > 0) {
+        player.score += rowCount * 100;
+        document.getElementById('score').innerText = player.score;
+        showQuiz();
+    }
+}
+
+function showQuiz() {
+    isPaused = true;
+    if (usedQuizzes.length === quizzes.length) usedQuizzes = [];
+    let available = quizzes.map((_, i) => i).filter(i => !usedQuizzes.includes(i));
+    let qIdx = available[Math.floor(Math.random() * available.length)];
+    usedQuizzes.push(qIdx);
+
+    const quiz = quizzes[qIdx];
+    document.getElementById('q-text').innerText = quiz.q;
+    const ansList = document.getElementById('ans-list');
+    ansList.innerHTML = '';
+    
+    quiz.a.forEach((text, idx) => {
+        const btn = document.createElement('button');
+        btn.className = 'ans-btn';
+        btn.innerText = text;
+        btn.onclick = () => {
+            document.getElementById('quiz-overlay').style.display = 'none';
+            if (idx === quiz.c) { timeLeft += 5; } 
+            isPaused = false;
+            lastTime = performance.now(); 
+            update(); 
+        };
+        ansList.appendChild(btn);
+    });
+    document.getElementById('quiz-overlay').style.display = 'flex';
+}
+
+function playerDrop() {
+    player.pos.y++;
+    if (collide(arena, player)) {
+        player.pos.y--;
+        merge(arena, player);
+        playerReset();
+        arenaSweep();
+    }
+    dropCounter = 0;
+}
+
+function merge(arena, player) {
+    player.matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+            if (value !== 0) arena[y + player.pos.y][x + player.pos.x] = value;
+        });
+    });
+}
+
+function playerReset() {
+    const pieces = 'ILJOTSZ';
+    if (!player.next) player.next = createPiece(pieces[Math.floor(Math.random() * pieces.length)]);
+    player.matrix = player.next;
+    player.next = createPiece(pieces[Math.floor(Math.random() * pieces.length)]);
+    player.pos.y = 0;
+    player.pos.x = (arena[0].length / 2 | 0) - (player.matrix[0].length / 2 | 0);
+    
+    if (collide(arena, player)) {
+        endGame("GAME OVER");
+    }
+}
+
+function playerRotate() {
+    const pos = player.pos.x;
+    let offset = 1;
+    const matrix = player.matrix;
+    for (let y = 0; y < matrix.length; ++y) {
+        for (let x = 0; x < y; ++x) [matrix[x][y], matrix[y][x]] = [matrix[y][x], matrix[x][y]];
+    }
+    matrix.forEach(row => row.reverse());
+    while (collide(arena, player)) {
+        player.pos.x += offset;
+        offset = -(offset + (offset > 0 ? 1 : -1));
+        if (offset > matrix[0].length) { 
+            matrix.forEach(row => row.reverse());
+            for (let y = 0; y < matrix.length; ++y) {
+                for (let x = 0; x < y; ++x) [matrix[x][y], matrix[y][x]] = [matrix[y][x], matrix[x][y]];
+            }
+            player.pos.x = pos;
+            return;
+        }
+    }
+}
+
+function endGame(reason) {
+    gameOver = true;
+    cancelAnimationFrame(requestId);
+    msgBox.innerHTML = `
+        <div style="color:#ffaa00; font-size: 3rem;">${reason}</div>
+        <div style="font-size:1.5rem; margin-top:20px;">최종 점수: ${player.score}</div>
+        <button class="retry-btn" onclick="initGame()">다시 시작하기</button>
+    `;
+    msgBox.style.display = 'block';
+}
+
+function update(time = 0) {
+    if (isPaused || gameOver) return;
+    
+    const deltaTime = time - lastTime;
+    lastTime = time;
+
+    timeLeft -= deltaTime / 1000;
+    document.getElementById('timer').innerText = Math.max(0, timeLeft).toFixed(1);
+    
+    if (timeLeft <= 0) { 
+        timeLeft = 0;
+        document.getElementById('timer').innerText = "0.0";
+        endGame("TIME UP!"); 
+        return; 
+    }
+
+    dropCounter += deltaTime;
+    if (dropCounter > 1000) {
+        playerDrop();
+    }
+
+    draw();
+    requestId = requestAnimationFrame(update);
+}
+
+function draw() {
+    context.fillStyle = '#000'; context.fillRect(0, 0, canvas.width, canvas.height);
+    drawGrid(context, 12, 20);
+    drawMatrix(arena, {x: 0, y: 0}, context);
+    drawMatrix(player.matrix, player.pos, context);
+    
+    nCtx.fillStyle = '#000'; nCtx.fillRect(0, 0, nextCanvas.width, nextCanvas.height);
+    drawGrid(nCtx, 4, 4);
+    drawMatrix(player.next, {x: 0, y: 0}, nCtx);
+}
+
+document.addEventListener('keydown', event => {
+    if (isPaused || gameOver) return;
+    if (event.keyCode === 37) { player.pos.x--; if(collide(arena, player)) player.pos.x++; }
+    else if (event.keyCode === 39) { player.pos.x++; if(collide(arena, player)) player.pos.x--; }
+    else if (event.keyCode === 40) playerDrop();
+    else if (event.keyCode === 38) playerRotate();
+    else if (event.keyCode === 32) {
+        while(!collide(arena, player)) { player.pos.y++; }
+        player.pos.y--;
+        merge(arena, player);
+        playerReset();
+        arenaSweep();
+        dropCounter = 0;
+    }
+});
+</script>
+</body>
+</html>
